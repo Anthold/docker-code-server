@@ -1,0 +1,42 @@
+#!/usr/bin/with-contenv bash
+
+mkdir -p /config/{extensions,data,workspace,.ssh}
+
+if [ -n "${SUDO_PASSWORD}" ] || [ -n "${SUDO_PASSWORD_HASH}" ]; then
+    echo "setting up sudo access"
+    if ! grep -q 'code' /etc/sudoers; then
+        echo "adding code to sudoers"
+        echo "code ALL=(ALL:ALL) ALL" >> /etc/sudoers
+    fi
+    if [ -n "${SUDO_PASSWORD_HASH}" ]; then
+        echo "setting sudo password using sudo password hash"
+        sed -i "s|^code:\!:|code:${SUDO_PASSWORD_HASH}:|" /etc/shadow
+    else
+        echo "setting sudo password using SUDO_PASSWORD env var"
+        echo -e "${SUDO_PASSWORD}\n${SUDO_PASSWORD}" | passwd code
+    fi
+fi
+
+[[ ! -f /config/.bashrc ]] && \
+    cp /root/.bashrc /config/.bashrc
+[[ ! -f /config/.profile ]] && \
+    cp /root/.profile /config/.profile
+
+# permissions
+if [ -f "/usr/bin/find" ] && [ -f "/usr/bin/xargs" ]; then
+    CORES=$(nproc --all)
+
+    # Split workload between config and workspace
+    echo "setting permissions::configuration"
+    find /config -path /config/workspace -prune -false -o -type d -print0 | \
+        xargs --null -r --max-args=1 --max-procs=$((CORES*2*8)) \
+        chown -R code:code
+
+    echo "setting permissions::workspace"
+    chown code:code /config/workspace
+else
+    # Set permissions on data mount
+    # do not decend into the workspace
+    chown -R code:code "$(ls /config -I workspace)"
+    chown code:code /config/workspace
+fi
